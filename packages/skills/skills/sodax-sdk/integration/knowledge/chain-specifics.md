@@ -1,12 +1,13 @@
 # Chain specifics — chain quirks
 
-EVM chains mostly work uniformly through `IEvmWalletProvider`, with **one** native-value exception (Hedera, below) and one settlement exception: Monad is EVM for wallets but settles through the MPC relay (see the non-EVM table). Non-EVM chains have more particularities you need to handle. This file documents each chain family's quirks.
+EVM chains mostly work uniformly through `IEvmWalletProvider`, with two Hedera exceptions (native-value scaling and HTS token association, below) and one settlement exception: Monad is EVM for wallets but settles through the MPC relay (see the non-EVM table). Non-EVM chains have more particularities you need to handle. This file documents each chain family's quirks.
 
 ## Section index
 
 EVM:
 
-0. [Hedera HBAR msg.value scaling](#0-hedera-hbar-msgvalue-scaling) — `HEDERA_MAINNET`. The only EVM-family quirk: native deposits scale `msg.value` by 10^10. Handled automatically by the SDK.
+0. [Hedera HBAR msg.value scaling](#0-hedera-hbar-msgvalue-scaling) — `HEDERA_MAINNET`. Native deposits scale `msg.value` by 10^10. Handled automatically by the SDK.
+   - [Hedera HTS token association](#0b-hedera-hts-token-association) — `HEDERA_MAINNET`. A delivered HTS token needs an existing association; automatic slots do not count.
 
 Non-EVM:
 
@@ -30,6 +31,32 @@ Non-EVM:
 ### Pitfall
 
 Do **not** pre-scale the amount yourself. Pass the plain 8-decimal HBAR amount; multiplying by 10^10 before handing it to the SDK double-scales and overpays. The scaling applies only to the native token (HBAR) — HTS / ERC-20 token deposits on Hedera carry `value: 0` and are unaffected.
+
+---
+
+## 0b. Hedera HTS token association
+
+**Quirk:** a Hedera account receives an HTS token only if it is **associated** with it. For a SODAX delivery (a swap into Hedera, a bridge, a money-market withdraw or borrow to Hedera) the association must already exist: a free or unlimited automatic association slot is **not** enough, because using it during delivery costs more gas than the relay's delivery execution provides. HBAR needs no association.
+
+### How v2 handles it
+
+Before signing, the SDK refuses a release of an HTS token to a Hedera account that cannot receive it (`VALIDATION_FAILED`, `context.reason: 'hedera-<reason>'`). Offer the fix first:
+
+```typescript
+// @ai-snippets-skip — illustrative only.
+const readiness = await sodax.spoke.hedera.checkDestination({ address: dstAddress, token });
+if (!readiness.ready && readiness.reason === 'not_associated') {
+  // HIP-719 associate() on the token itself: associates exactly this token, signed by dstAddress's EVM wallet.
+  const association = await sodax.spoke.hedera.requestAssociation({ srcAddress: dstAddress, token, walletProvider });
+  if (!association.ok) throw association.error;
+}
+```
+
+Reasons: `not_associated` (fix with `requestAssociation`), `account_missing` (no Hedera account at the address), `frozen`, `kyc_not_granted` (the token's authorities must act). `requestAssociation` resolves to the hash once mined and visible on the mirror node; `raw: true` returns the unsigned call; an unknown outcome is an `IndeterminateOutcomeError` carrying the hash. The mirror node is `chains.hedera.mirrorNodeUrl` (default `https://mainnet-public.mirrornode.hedera.com`); a failed read refuses the release. In React use `useHederaGate`, or `useSwapLifecycle`'s `hederaAssociation` step.
+
+### Pitfall
+
+Do not treat `max_automatic_token_associations: -1` (the default for EVM-wallet accounts) as "can receive": SODAX deliveries into such an account still fail until the token is associated. Associate each token once, separately.
 
 ---
 

@@ -9,6 +9,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import type { NearStorageGateState } from './nearStorageGate.js';
 import type { StellarGateState } from './stellarGate.js';
+import type { HederaGateState } from './hederaGate.js';
 import type { XrpGateState } from './xrpGate.js';
 import {
   isSameIntent,
@@ -63,6 +64,13 @@ const OPEN_XRP: XrpGateState = {
   checkFailed: false,
   blocksAction: false,
 };
+const OPEN_HEDERA: HederaGateState = {
+  isHederaHtsToken: false,
+  needsAssociation: false,
+  blockedReason: undefined,
+  checkFailed: false,
+  blocksAction: false,
+};
 
 const inputs = (overrides: Partial<SwapLifecycleInputs> = {}): SwapLifecycleInputs => ({
   attempt: { phase: 'none' },
@@ -72,9 +80,11 @@ const inputs = (overrides: Partial<SwapLifecycleInputs> = {}): SwapLifecycleInpu
   stellar: OPEN_STELLAR,
   nearStorage: OPEN_NEAR,
   xrp: OPEN_XRP,
+  hedera: OPEN_HEDERA,
   externalBlocked: false,
   setupBusy: false,
   isWrongChain: false,
+  hederaWrongChain: false,
   strategy: { data: 'atomic-batch', error: null },
   ...overrides,
 });
@@ -229,6 +239,23 @@ describe('resolveSwapLifecycle', () => {
   });
 
   it.each([
+    [true, false, undefined, { kind: 'needsChainSwitch' }],
+    [false, false, undefined, { kind: 'needsSetup', reason: 'hederaAssociation' }],
+    [true, true, undefined, { kind: 'checking' }],
+    [true, false, 'frozen', { kind: 'needsSetup', reason: 'hederaBlocked' }],
+  ] as const)('resolves Hedera setup with wrongChain=%s busy=%s blocked=%s', (hederaWrongChain, setupBusy, blockedReason, expected) => {
+    expect(
+      resolveSwapLifecycle(
+        inputs({
+          hederaWrongChain,
+          setupBusy,
+          hedera: { ...OPEN_HEDERA, isHederaHtsToken: true, needsAssociation: true, blocksAction: true, blockedReason },
+        }),
+      ),
+    ).toEqual(expected);
+  });
+
+  it.each([
     [{ needsActivation: true, blocksAction: true }, 'stellarActivation'],
     [{ needsFunding: true, blocksAction: true }, 'stellarFunding'],
     [{ needsTrustline: true, blocksAction: true }, 'stellarTrustline'],
@@ -262,6 +289,40 @@ describe('resolveSwapLifecycle', () => {
     expect(resolveSwapLifecycle(inputs({ xrp: { ...OPEN_XRP, isXrpIssuedToken: true } }))).toEqual({
       kind: 'ready',
       approvalStrategy: 'atomic-batch',
+    });
+  });
+
+  it.each([
+    [{ needsAssociation: true, blocksAction: true }, 'hederaAssociation'],
+    [{ blockedReason: 'account_missing', blocksAction: true }, 'hederaBlocked'],
+    [{ blockedReason: 'frozen', blocksAction: true }, 'hederaBlocked'],
+    [{ blockedReason: 'kyc_not_granted', blocksAction: true }, 'hederaBlocked'],
+    [{ checkFailed: true, blocksAction: true }, 'hederaCheckFailed'],
+  ] as const)('blocks on the Hedera gate (%o → %s)', (gate, reason) => {
+    expect(resolveSwapLifecycle(inputs({ hedera: { ...OPEN_HEDERA, isHederaHtsToken: true, ...gate } }))).toEqual({
+      kind: 'needsSetup',
+      reason,
+    });
+  });
+
+  it('is checking while the Hedera gate resolves, or while an association and its refreshed check run', () => {
+    const hedera = { ...OPEN_HEDERA, isHederaHtsToken: true, blocksAction: true };
+    expect(resolveSwapLifecycle(inputs({ hedera }))).toEqual({ kind: 'checking' });
+    expect(resolveSwapLifecycle(inputs({ hedera: { ...hedera, needsAssociation: true }, setupBusy: true }))).toEqual({
+      kind: 'checking',
+    });
+    // Once the token is associated the swap goes ahead.
+    expect(resolveSwapLifecycle(inputs({ hedera: { ...OPEN_HEDERA, isHederaHtsToken: true } }))).toEqual({
+      kind: 'ready',
+      approvalStrategy: 'atomic-batch',
+    });
+  });
+
+  it('reports a Hedera refusal no association fixes before the association step', () => {
+    const hedera = { ...OPEN_HEDERA, isHederaHtsToken: true, blocksAction: true, blockedReason: 'frozen' as const };
+    expect(resolveSwapLifecycle(inputs({ hedera: { ...hedera, needsAssociation: true } }))).toEqual({
+      kind: 'needsSetup',
+      reason: 'hederaBlocked',
     });
   });
 

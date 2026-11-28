@@ -139,11 +139,12 @@ Feed it `intentDeliveryInfo.srcChainKey` / `srcTxHash` on success. A `swap()` th
 ## One Hook for the Whole Form
 
 `useSwapLifecycle` composes the approval strategy, the destination gates (Stellar account + trustline, NEAR
-storage, XRPL trustline), source-chain switching, `useSwapWithApproval` and `useDetailedStatus` into one discriminated `state` and
+storage, XRPL trustline, Hedera token association), source-chain switching, `useSwapWithApproval` and `useDetailedStatus` into one discriminated `state` and
 one `next()` action. Render from `state.kind`; wire the button to `next()`. Chain switching and app-owned setup
 (e.g. a Bitcoin trading wallet) are passed in — dapp-kit does not depend on the wallet packages.
 
 ```tsx
+import { useState } from 'react';
 import { useSwapLifecycle, type CreateIntentParams, type SwapLifecycleState } from '@sodax/dapp-kit';
 import { useEvmSwitchChain, useWalletProvider } from '@sodax/wallet-sdk-react';
 
@@ -162,7 +163,9 @@ function buttonLabel(state: SwapLifecycleState): string {
       if (state.reason === 'nearStorageCheckFailed') return 'Retry check';
       if (state.reason === 'xrpTrustline') return 'Add trustline';
       if (state.reason === 'xrpCheckFailed') return 'Retry check';
-      // xrpFunding: the account needs spendable XRP. xrpBlocked: read lifecycle.xrp.blockedReason.
+      if (state.reason === 'hederaAssociation') return 'Associate token';
+      if (state.reason === 'hederaCheckFailed') return 'Retry check';
+      // xrpFunding: the account needs spendable XRP. xrpBlocked / hederaBlocked: read lifecycle.xrp/hedera.blockedReason.
       return 'Waiting on setup';
     case 'submitting':
     case 'pending':
@@ -181,7 +184,7 @@ function buttonLabel(state: SwapLifecycleState): string {
 // Nothing to click: waiting, or a prerequisite only the user or the app can resolve.
 function isPassive(state: SwapLifecycleState): boolean {
   if (state.kind === 'needsSetup') {
-    return ['stellarFunding', 'xrpFunding', 'xrpBlocked', 'external'].includes(state.reason);
+    return ['stellarFunding', 'xrpFunding', 'xrpBlocked', 'hederaBlocked', 'external'].includes(state.reason);
   }
   return ['idle', 'checking', 'submitting', 'pending'].includes(state.kind);
 }
@@ -190,17 +193,32 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
   const srcWalletProvider = useWalletProvider({ xChainId: intentParams.srcChainKey });
   const dstWalletProvider = useWalletProvider({ xChainId: intentParams.dstChainKey });
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: intentParams.srcChainKey });
+  const { isWrongChain: isDstWrongChain, handleSwitchChain: handleDstSwitchChain } = useEvmSwitchChain({
+    xChainId: intentParams.dstChainKey,
+  });
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { state, error, next, reset, stellar } = useSwapLifecycle({
     intentParams,
     srcWalletProvider,
     dstWalletProvider,
     chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
+    dstChainSwitch: { isWrongChain: isDstWrongChain, switchChain: handleDstSwitchChain },
   });
 
   return (
     <>
-      <button type="button" onClick={() => void next()} disabled={isPassive(state)}>
+      <button
+        type="button"
+        onClick={async () => {
+          setActionError(null);
+          const result = await next();
+          if (result && !result.ok) {
+            setActionError(result.error instanceof Error ? result.error.message : String(result.error));
+          }
+        }}
+        disabled={isPassive(state)}
+      >
         {buttonLabel(state)}
       </button>
       {state.kind === 'needsSetup' && state.reason === 'stellarFunding' && (
@@ -221,11 +239,16 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
           </button>
         </p>
       )}
+      {actionError && <p>{actionError}</p>}
       {error && state.kind !== 'unconfirmed' && <p>{error.message}</p>}
     </>
   );
 }
 ```
+
+Hedera association needs the wallet on Hedera. With `dstChainSwitch`, the lifecycle shows `needsChainSwitch`
+and `next()` switches to Hedera before the `hederaAssociation` step; after association, the source
+`chainSwitch` brings the wallet back before the swap. Without `dstChainSwitch`, a wallet provider that can report and switch its chain (the `@sodax/wallet-sdk-core` EVM provider) switches itself to Hedera on the first `next()` and sends the association on the next one; a refused switch comes back from `next()` as a failed `Result`.
 
 `next()` resolves to the action's `Result` (a setup step or the swap); show a failed setup action from there. A failed
 swap lands in `state`:

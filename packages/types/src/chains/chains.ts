@@ -583,6 +583,7 @@ export type BitcoinChainKey = ChainKeysByType<'BITCOIN'>;
 export type TronChainKey = ChainKeysByType<'TRON'>;
 export type XrpChainKey = ChainKeysByType<'XRP'>;
 export type MonadChainKey = typeof ChainKeys.MONAD_MAINNET;
+export type HederaChainKey = typeof ChainKeys.HEDERA_MAINNET;
 export type TonChainKey = ChainKeysByType<'TON'>;
 export type ZcashChainKey = ChainKeysByType<'ZCASH'>;
 export type CardanoChainKey = ChainKeysByType<'CARDANO'>;
@@ -683,6 +684,12 @@ export type EvmSpokeChainConfig = BaseSpokeChainConfig<'EVM'> & {
   };
   nativeToken: string;
   rpcUrl: string;
+};
+
+/** Hedera rides the shared EVM spoke; the mirror node answers what its JSON-RPC cannot, such as HTS token associations. */
+export type HederaSpokeChainConfig = EvmSpokeChainConfig & {
+  /** Hedera mirror node REST base URL, without `/api/v1`. The SDK falls back to the public mainnet node. */
+  mirrorNodeUrl?: string;
 };
 
 export type SonicSpokeChainConfig = BaseSpokeChainConfig<'EVM'> & {
@@ -856,6 +863,7 @@ export type SpokeChainConfig =
   | TonSpokeChainConfig
   | MonadSpokeChainConfig
   | XrpSpokeChainConfig
+  | HederaSpokeChainConfig
   | EvmSpokeChainConfig
   | SonicSpokeChainConfig
   | InjectiveSpokeChainConfig
@@ -872,35 +880,37 @@ export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicCh
   ? SonicSpokeChainConfig
   : T extends MonadChainKey
     ? MonadSpokeChainConfig
-    : GetChainType<T> extends 'EVM'
-      ? EvmSpokeChainConfig
-      : GetChainType<T> extends 'SOLANA'
-        ? SolanaChainConfig
-        : GetChainType<T> extends 'STELLAR'
-          ? StellarSpokeChainConfig
-          : GetChainType<T> extends 'ICON'
-            ? IconSpokeChainConfig
-            : GetChainType<T> extends 'SUI'
-              ? SuiSpokeChainConfig
-              : GetChainType<T> extends 'INJECTIVE'
-                ? InjectiveSpokeChainConfig
-                : GetChainType<T> extends 'NEAR'
-                  ? NearSpokeChainConfig
-                  : GetChainType<T> extends 'STACKS'
-                    ? StacksSpokeChainConfig
-                    : GetChainType<T> extends 'BITCOIN'
-                      ? BitcoinSpokeChainConfig
-                      : GetChainType<T> extends 'TRON'
-                        ? TronSpokeChainConfig
-                        : GetChainType<T> extends 'XRP'
-                          ? XrpSpokeChainConfig
-                          : GetChainType<T> extends 'TON'
-                            ? TonSpokeChainConfig
-                            : GetChainType<T> extends 'ZCASH'
-                              ? ZcashSpokeChainConfig
-                              : GetChainType<T> extends 'CARDANO'
-                                ? CardanoSpokeChainConfig
-                                : SpokeChainConfig;
+    : T extends HederaChainKey
+      ? HederaSpokeChainConfig
+      : GetChainType<T> extends 'EVM'
+        ? EvmSpokeChainConfig
+        : GetChainType<T> extends 'SOLANA'
+          ? SolanaChainConfig
+          : GetChainType<T> extends 'STELLAR'
+            ? StellarSpokeChainConfig
+            : GetChainType<T> extends 'ICON'
+              ? IconSpokeChainConfig
+              : GetChainType<T> extends 'SUI'
+                ? SuiSpokeChainConfig
+                : GetChainType<T> extends 'INJECTIVE'
+                  ? InjectiveSpokeChainConfig
+                  : GetChainType<T> extends 'NEAR'
+                    ? NearSpokeChainConfig
+                    : GetChainType<T> extends 'STACKS'
+                      ? StacksSpokeChainConfig
+                      : GetChainType<T> extends 'BITCOIN'
+                        ? BitcoinSpokeChainConfig
+                        : GetChainType<T> extends 'TRON'
+                          ? TronSpokeChainConfig
+                          : GetChainType<T> extends 'XRP'
+                            ? XrpSpokeChainConfig
+                            : GetChainType<T> extends 'TON'
+                              ? TonSpokeChainConfig
+                              : GetChainType<T> extends 'ZCASH'
+                                ? ZcashSpokeChainConfig
+                                : GetChainType<T> extends 'CARDANO'
+                                  ? CardanoSpokeChainConfig
+                                  : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
 export type IconSpokeChainConfig = BaseSpokeChainConfig<'ICON'> & {
@@ -1605,6 +1615,7 @@ export const spokeChainConfig = {
   [ChainKeys.HEDERA_MAINNET]: {
     chain: baseChainInfo[ChainKeys.HEDERA_MAINNET] satisfies BaseChainInfo<'EVM'>,
     rpcUrl: 'https://mainnet.hashio.io/api',
+    mirrorNodeUrl: 'https://mainnet-public.mirrornode.hedera.com',
     addresses: {
       assetManager: '0x0df73542cC68bDC01b361d231c60F726B0e0bC05',
       connection: '0x4555aC13D7338D9E671584C1D118c06B2a3C88eD',
@@ -1616,7 +1627,7 @@ export const spokeChainConfig = {
       pollingIntervalMs: 2000,
       maxTimeoutMs: 60_000,
     },
-  } as const satisfies EvmSpokeChainConfig,
+  } as const satisfies HederaSpokeChainConfig,
   [ChainKeys.TRON_MAINNET]: {
     chain: baseChainInfo[ChainKeys.TRON_MAINNET] satisfies BaseChainInfo<'TRON'>,
     rpcUrl: 'https://api.trongrid.io',

@@ -65,6 +65,9 @@ const SETUP_LABELS: Record<SwapSetupReason, string> = {
   xrpFunding: 'Fund the XRPL account with XRP first',
   xrpBlocked: 'This XRPL account cannot receive this token',
   xrpCheckFailed: 'Retry XRPL Check',
+  hederaAssociation: 'Associate Token on Hedera',
+  hederaBlocked: 'This Hedera account cannot receive this token',
+  hederaCheckFailed: 'Retry Hedera Check',
   external: 'Finish the Bitcoin setup first',
 };
 
@@ -98,7 +101,7 @@ function primaryLabel(state: SwapLifecycleState): string {
 /** States the button cannot act on: waiting, or a prerequisite only the user (or the app) can resolve. */
 function isPassive(state: SwapLifecycleState): boolean {
   if (state.kind === 'needsSetup') {
-    return ['stellarFunding', 'xrpFunding', 'xrpBlocked', 'external'].includes(state.reason);
+    return ['stellarFunding', 'xrpFunding', 'xrpBlocked', 'hederaBlocked', 'external'].includes(state.reason);
   }
   return state.kind === 'idle' || state.kind === 'checking' || state.kind === 'submitting' || state.kind === 'pending';
 }
@@ -382,6 +385,9 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   };
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: src.chain });
+  const { isWrongChain: isDstWrongChain, handleSwitchChain: handleDstSwitchChain } = useEvmSwitchChain({
+    xChainId: dst.chain,
+  });
 
   const submittedSummary = useRef<OrderSummary | undefined>(undefined);
   const lifecycle = useSwapLifecycle({
@@ -389,6 +395,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
     srcWalletProvider: sourceWalletProvider,
     dstWalletProvider: destWalletProvider,
     chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
+    dstChainSwitch: { isWrongChain: isDstWrongChain, switchChain: handleDstSwitchChain },
     externalBlocked:
       (src.chain === ChainKeys.BITCOIN_MAINNET && !isBitcoinReady) ||
       (dst.chain === ChainKeys.BITCOIN_MAINNET && !isDestBitcoinReady),

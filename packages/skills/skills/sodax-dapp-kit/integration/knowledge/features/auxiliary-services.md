@@ -424,6 +424,29 @@ TrustSet cannot authorize it. Offer no trustline action for those. `useSwapLifec
 it refuses, before signing, a wallet connected to another account; mutationKey
 `['shared', 'establishXrpTrustline']`); `resolveXrpGate` is the hook-free resolver.
 
+### Hedera token association — use `useHederaGate`
+
+A Hedera account needs to be associated with an HTS token before a SODAX delivery of it can land; HBAR needs
+none. Only an existing association counts: a free or unlimited automatic association slot is not enough, because
+using it during delivery costs more gas than the relay's delivery execution provides. `useHederaGate` reads the
+destination from the Hedera mirror node, the same read the SDK refuses a release on before signing.
+
+```ts
+// @ai-snippets-skip — illustrative only.
+const hedera = useHederaGate({ dstChainKey, token, address, walletProvider });
+if (hedera.needsAssociation) await hedera.requestAssociation(); // one associate() for exactly this token
+if (hedera.blockedReason) showBlocked(hedera.blockedReason); // 'account_missing', 'frozen' or 'kyc_not_granted'
+if (hedera.checkFailed) hedera.retry();
+```
+
+`walletProvider` is the destination's EVM wallet provider; it must control `address`. Each token is associated
+separately, and the account pays the network fee in HBAR. `useSwapLifecycle` runs this gate as the
+`hederaAssociation`, `hederaBlocked` and `hederaCheckFailed` setup reasons, for the swap's output token and
+`dstAddress`. Hedera association needs the wallet on Hedera. Pass `dstChainSwitch` from a second `useEvmSwitchChain` for the destination: the lifecycle shows `needsChainSwitch`, `next()` switches to Hedera, then associates, and the source `chainSwitch` brings the wallet back before the swap. Without `dstChainSwitch`, a wallet provider that can report and switch its chain (the `@sodax/wallet-sdk-core` EVM provider) switches itself to Hedera on the first `next()` and sends the association on the next one; a refused switch comes back from `next()` as a failed `Result`. The pieces are `useHederaDestinationCheck` and `useEstablishHederaAssociation` (vars
+`{ token, address?, walletProvider }`; with `address` it refuses, before signing, a wallet connected to another
+account; it never retries an association whose outcome is unknown; mutationKey
+`['shared', 'establishHederaAssociation']`); `resolveHederaGate` is the hook-free resolver.
+
 ## Stellar account activation (sponsoring)
 
 A Stellar account must exist on-chain before it can hold or receive anything, and a brand-new user

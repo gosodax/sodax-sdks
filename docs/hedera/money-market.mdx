@@ -71,7 +71,7 @@ const result = await sodax.moneyMarket.borrow({
 
 Build every amount from the token's own `decimals`: on Hedera most HTS tokens in the SODAX list use 8, and USDC uses 6.
 
-When Hedera is the destination of a borrow or a withdraw, the receiving account must be able to receive that HTS token. Check it with the mirror node before you submit: [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
+When Hedera is the destination of a borrow or a withdraw, the receiving account must already be associated with that HTS token; the SDK refuses the call before signing otherwise. Check and fix it with `sodax.spoke.hedera.checkDestination` and `requestAssociation`: [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
 
 `withdraw` and `repay` follow the same shape. Withdraw and borrow need no approval on any network; repaying with an HTS token needs an allowance, like supply.
 

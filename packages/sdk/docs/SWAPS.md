@@ -691,6 +691,22 @@ if (!readiness.ready && (readiness.reason === 'no_trustline' || readiness.reason
 
 `requestTrustline` needs a wallet provider that implements the optional `IXrpWalletProvider.signTrustSet`. `XrpWalletProvider` does in raw-key mode, and in GemWallet mode when the adapter has `submitTrustSet`, as the bundled connector's does; `raw: true` returns the unsigned TrustSet instead. When the TrustSet may have been sent but its outcome is unknown, the error is an `IndeterminateOutcomeError` carrying its hash: look the hash up before signing again, since every TrustSet costs a fee. In React, `useSwapLifecycle` runs these steps as its `xrpTrustline` setup step.
 
+### Hedera Token Association
+
+A Hedera account receives an HTS token only if it is associated with that token. For a release delivered by SODAX (a swap, bridge, money-market withdraw or borrow), the association must already exist: a free or unlimited automatic association slot is not enough, because using it during delivery costs more gas than the relay's delivery execution provides. HBAR needs no association. Before signing, the SDK refuses a release of an HTS token to a Hedera account that cannot receive it, with `context.reason` set to `hedera-<reason>`.
+
+`sodax.spoke.hedera.checkDestination` reads the Hedera mirror node and says whether the account can receive and why not. A `not_associated` result is fixed by `sodax.spoke.hedera.requestAssociation`, which associates exactly that token: it calls HIP-719 `associate()` on the token's own address through the account's EVM wallet provider, waits for it to be mined and for the mirror node to show it, and resolves to the transaction hash. The account pays the network fee in HBAR. Each token is associated separately. The other refusals need someone else to act: `account_missing` (no Hedera account at the address yet), `frozen` (the token froze the account), and `kyc_not_granted` (the token requires a KYC grant).
+
+```typescript
+const readiness = await sodax.spoke.hedera.checkDestination({ address, token });
+if (!readiness.ready && readiness.reason === 'not_associated') {
+  const association = await sodax.spoke.hedera.requestAssociation({ srcAddress: address, token, walletProvider });
+  if (!association.ok) console.error(association.error);
+}
+```
+
+`raw: true` returns the unsigned `associate()` call instead. When the association was sent but its receipt could not be read, the error is an `IndeterminateOutcomeError` carrying its hash: look the hash up before signing again, since every association costs a fee. A mirror-node failure makes the check throw, so the SDK refuses the release rather than send one that may fail. The mirror node defaults to `https://mainnet-public.mirrornode.hedera.com`; set `chains.hedera.mirrorNodeUrl` to use another. In React, `useSwapLifecycle` runs the association as its `hederaAssociation` setup step.
+
 ### XRP Ledger Stock Tokens
 
 The Robinhood stock tokens on XRP Ledger share one issuer, so each token `address` is `<40-hex currency>:<issuer>`. Take it from `spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens`; the issuer address alone names no token. They are listed in `stagingSwapSupportedTokens`, not in the production list. XRP, RLUSD and USDC keep their previous addresses.

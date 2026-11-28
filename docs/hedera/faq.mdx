@@ -28,7 +28,7 @@ Because Hedera counts native value in two units. The SDK and the token config us
 
 #### Why did a delivery to a Hedera account fail?
 
-Most likely the recipient could not receive the token. A Hedera account receives an HTS token only if it is associated with it or has a free automatic association slot. Accounts auto-created at an EVM address have unlimited slots, but accounts created other ways may have few or none. Check the recipient with the mirror node before you submit, and have the user call `associate()` on the token if needed: [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
+Most likely the recipient could not receive the token. A SODAX delivery of an HTS token reaches a Hedera account only if it is already associated with that token; a free or unlimited automatic association slot is not enough, because using it during delivery costs more gas than the relay's delivery execution provides. The SDK now refuses such a delivery before signing. Check the recipient with `sodax.spoke.hedera.checkDestination` and associate the token with `sodax.spoke.hedera.requestAssociation`: [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
 
 #### Is there an approve step before swapping or supplying?
 

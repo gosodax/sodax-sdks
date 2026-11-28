@@ -15,7 +15,7 @@ High-level React hooks library for dApp developers. Wraps `@sodax/sdk` with Reac
 - **Partner** — `useFetchAssetsBalances`, `useGetAutoSwapPreferences`, `useIsTokenApproved`, `useApproveToken`, `useSetSwapPreference`, `useFeeClaimSwap`, `useFeeClaimWithdraw`, `usePartnerCancelIntent`, `useGetUserIntent`, `useGetIntentDetails`
 - **Recovery** — `useHubAssetBalances`, `useWithdrawHubAsset`
 - **Backend Queries** — Intent tracking, swap-tx submission + status, orderbook, money market position queries
-- **Shared** — `useBalances`, `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useNearStorageCheck`, `useRegisterNearStorage`, `useNearStorageGate`, `useXrpDestinationCheck`, `useXrpTrustlineReserveCheck`, `useEstablishXrpTrustline`, `useXrpGate`, `useEstimateGas`
+- **Shared** — `useBalances`, `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useNearStorageCheck`, `useRegisterNearStorage`, `useNearStorageGate`, `useXrpDestinationCheck`, `useXrpTrustlineReserveCheck`, `useEstablishXrpTrustline`, `useXrpGate`, `useHederaDestinationCheck`, `useEstablishHederaAssociation`, `useHederaGate`, `useEstimateGas`
 - **Sponsoring** — `useStellarAccountActive`, `useStellarAccountStatus`, `useSponsorConfig`, `useActivateStellarAccount`
 
 ## Installation
@@ -140,7 +140,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useSwap()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwap.ts) — Submit a cross-chain swap intent
 - [`useSwapAllowance()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapAllowance.ts) — Check token approval
 - [`useSwapApprove()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapApprove.ts) — Approve token spending
-- [`useSwapLifecycle()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapLifecycle.ts) — A whole swap form as one discriminated `state` and one `next()` action: approval strategy, Stellar/NEAR/XRPL destination gates, source-chain switch (passed in), the swap and its status. A swap that fails after broadcast stays `pending` with its `error`; a batch that was sent but not confirmed is `unconfirmed`, and `next()` waits for it again (never re-sends it) and finishes the swap once it lands. The hooks it composes are returned as escape hatches
+- [`useSwapLifecycle()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapLifecycle.ts) — A whole swap form as one discriminated `state` and one `next()` action: approval strategy, Stellar/NEAR/XRPL/Hedera destination gates, source-chain switch (passed in), the swap and its status. A swap that fails after broadcast stays `pending` with its `error`; a batch that was sent but not confirmed is `unconfirmed`, and `next()` waits for it again (never re-sends it) and finishes the swap once it lands. The hooks it composes are returned as escape hatches
 - [`useSwapWithApproval()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapWithApproval.ts) — `useSwap` with the approval folded in: approve + swap as one EIP-5792 batch (one signature) on a wallet that can batch, otherwise approve then swap. `allowAccountUpgrade: false` skips the smart-account upgrade prompt a `'ready'` wallet would show and approves separately
 - [`useSwapApprovalStrategy()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapApprovalStrategy.ts) — Which path `useSwapWithApproval` will take (`'not-required'` / `'atomic-batch'` / `'sequential'`), to label the button
 - [`useDetailedStatus()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useDetailedStatus.ts) — Poll a swap's status from its **source** tx (`{ srcChainKey, srcTxHash }`), whichever completion path ran — the default status read. Collapse `data.value` with `summarizeSwapStatus` from `@sodax/sdk`
@@ -315,6 +315,9 @@ expires unfilled, so those go through `useSubmitLeveragePositionIntent()`, which
 - [`useXrpTrustlineReserveCheck()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useXrpTrustlineReserveCheck.ts) — Whether an XRPL account holds the spendable XRP to set a trustline
 - [`useEstablishXrpTrustline()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useEstablishXrpTrustline.ts) — Create an XRPL trustline, or raise its limit, with one TrustSet
 - [`useXrpGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useXrpGate.ts) — Sequences the XRPL issued-token destination prerequisites (trustline → funding), with `blockedReason` for refusals no trustline fixes
+- [`useHederaDestinationCheck()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useHederaDestinationCheck.ts) — Whether a Hedera account can receive an HTS token (only an existing association counts), and why not
+- [`useEstablishHederaAssociation()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useEstablishHederaAssociation.ts) — Associate exactly one HTS token with the connected Hedera account (HIP-719 `associate()`)
+- [`useHederaGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useHederaGate.ts) — Gates a Hedera HTS-token destination on an existing association, with `blockedReason` for refusals no association fixes
 - [`useNearStorageCheck()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useNearStorageCheck.ts) — Check NEP-141 storage registration for a token on NEAR (NEAR's analogue of a Stellar trustline)
 - [`useRegisterNearStorage()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useRegisterNearStorage.ts) — Submit a NEP-141 `storage_deposit` so a NEAR account can receive a token
 - [`useNearStorageGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useNearStorageGate.ts) — Derive the NEP-141 storage-registration UI gate state for a NEAR delivery
@@ -387,6 +390,12 @@ DEX param builders:
 XRPL trustline gate:
 
 - [`resolveXrpGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/utils/xrpGate.ts) — Derive the XRPL issued-token destination gate state (hook-free counterpart of `useXrpGate`)
+
+Hedera token association gate:
+
+Hedera association needs the wallet on Hedera. Pass `dstChainSwitch` from a second `useEvmSwitchChain` for the destination: the lifecycle shows `needsChainSwitch`, `next()` switches to Hedera, then associates, and the source `chainSwitch` brings the wallet back before the swap. Without `dstChainSwitch`, a wallet provider that can report and switch its chain (the `@sodax/wallet-sdk-core` EVM provider) switches itself to Hedera on the first `next()` and sends the association on the next one; a refused switch comes back from `next()` as a failed `Result`.
+
+- [`resolveHederaGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/utils/hederaGate.ts) — Derive the Hedera HTS-token destination gate state (hook-free counterpart of `useHederaGate`)
 
 NEAR storage gate:
 

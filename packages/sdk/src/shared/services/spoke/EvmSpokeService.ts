@@ -30,6 +30,7 @@ import {
   isNativeToken,
   type EvmReturnType,
 } from '@sodax/types';
+import { TRANSACTION_REVERTED_MESSAGE } from './evm-receipt.js';
 
 /**
  * HBAR is tracked as 8 decimals but Hedera's EVM layer treats native value as 18, so msg.value is scaled by 10^10
@@ -246,7 +247,7 @@ export class EvmSpokeService {
       });
 
       if (receipt.status === 'reverted') {
-        return { ok: true, value: { status: 'failure', error: new Error('Transaction reverted') } };
+        return { ok: true, value: { status: 'failure', error: new Error(TRANSACTION_REVERTED_MESSAGE) } };
       }
 
       const response = {

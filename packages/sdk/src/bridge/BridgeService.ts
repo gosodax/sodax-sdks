@@ -55,6 +55,7 @@ import {
   type ApprovalStrategy,
 } from '../shared/utils/approvalBatch.js';
 import {
+  ChainKeys,
   type SpokeChainKey,
   type XToken,
   type Hex,
@@ -848,15 +849,17 @@ export class BridgeService {
           { ...baseCtx, field: 'amount' },
         );
       }
-      if (isMpcRelayChainKey(params.dstChainKey)) {
+      if (isMpcRelayChainKey(params.dstChainKey) || params.dstChainKey === ChainKeys.HEDERA_MAINNET) {
         const { delivered } = this.computeBridgeAmounts(params.amount, srcToken, dstToken, partnerFee);
-        assertMpcPayoutAboveMinimum({
-          feature: 'bridge',
-          dstChainKey: params.dstChainKey,
-          token: dstToken,
-          amount: delivered,
-          context: { ...baseCtx, field: 'amount' },
-        });
+        if (isMpcRelayChainKey(params.dstChainKey)) {
+          assertMpcPayoutAboveMinimum({
+            feature: 'bridge',
+            dstChainKey: params.dstChainKey,
+            token: dstToken,
+            amount: delivered,
+            context: { ...baseCtx, field: 'amount' },
+          });
+        }
         await this.spoke.assertReleaseRecipientReady({
           feature: 'bridge',
           chainKey: params.dstChainKey,

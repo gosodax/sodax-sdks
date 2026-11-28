@@ -12,10 +12,12 @@ import {
 } from '@sodax/sdk';
 import { useIsFetching, type UseQueryResult } from '@tanstack/react-query';
 import { useRef } from 'react';
+import { switchWalletToHedera } from '../../utils/hederaGate.js';
 import { resolveSwapLifecycle, toSwapAttempt, type SwapLifecycleState } from '../../utils/swapLifecycle.js';
 import { useNearStorageGate, type NearStorageGate } from '../shared/useNearStorageGate.js';
 import { useStellarGate, type StellarGate } from '../shared/useStellarGate.js';
 import { useXrpGate, type XrpGate } from '../shared/useXrpGate.js';
+import { useHederaGate, type HederaGate } from '../shared/useHederaGate.js';
 import type { MutationHookOptions } from '../shared/types.js';
 import type { SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { useDetailedStatus, type UseDetailedStatusResult } from './useDetailedStatus.js';
@@ -31,10 +33,18 @@ export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
    */
   intentParams: CreateIntentParams<K> | undefined;
   srcWalletProvider: GetWalletProviderType<K> | undefined;
-  /** For the Stellar, NEAR and XRPL setup actions; must control `intentParams.dstAddress`, which the gates check. */
+  /** For the Stellar, NEAR, XRPL and Hedera setup actions; must control `intentParams.dstAddress`, which the gates check. */
   dstWalletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
   /** Source-chain switching, e.g. `useEvmSwitchChain` from `@sodax/wallet-sdk-react`. */
   chainSwitch?: { isWrongChain: boolean; switchChain: () => void | Promise<void> };
+  /**
+   * Destination-chain switching: the Hedera association is sent from Hedera, so a wallet on another
+   * chain must switch first (e.g. `useEvmSwitchChain({ xChainId: intentParams.dstChainKey })`).
+   * The source `chainSwitch` brings it back before the swap. Without it, a wallet provider that exposes
+   * `getChainId` and `switchChain` switches itself on the first `next()`.
+   */
+  dstChainSwitch?: { isWrongChain: boolean; switchChain: () => void | Promise<void> };
+  /** An app-owned prerequisite that must hold before swapping (e.g. a Bitcoin trading-wallet setup). */
   externalBlocked?: boolean;
   /** `false` approves separately instead of asking a `'ready'` wallet to upgrade the account. Defaults to `true`. */
   allowAccountUpgrade?: boolean;
@@ -62,17 +72,21 @@ export type SwapLifecycle<K extends SpokeChainKey = SpokeChainKey> = {
   nearStorage: NearStorageGate;
   /** `blockedReason` names why an XRPL destination cannot receive when the state is `xrpBlocked`. */
   xrp: XrpGate;
+  /** `blockedReason` names why a Hedera destination cannot receive when the state is `hederaBlocked`. */
+  hedera: HederaGate;
 };
 
 /**
- * Composes approval, destination setup gates, chain switching, swap and status into one `state` plus a `next()` action.
- * Wallet-layer concerns are passed in because dapp-kit does not depend on the wallet packages.
+ * Composes approval, destination setup gates (including the Hedera token association), chain switching, swap and status
+ * into one `state` plus a `next()` action. Wallet-layer concerns are passed in because dapp-kit does not depend on the
+ * wallet packages.
  */
 export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
   intentParams,
   srcWalletProvider,
   dstWalletProvider,
   chainSwitch,
+  dstChainSwitch,
   externalBlocked = false,
   allowAccountUpgrade,
   extras,
@@ -108,6 +122,13 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     walletProvider: dstWalletProvider,
   });
 
+  const hedera = useHederaGate({
+    dstChainKey: intentParams?.dstChainKey,
+    token: intentParams?.outputToken,
+    address: intentParams?.dstAddress,
+    walletProvider: dstWalletProvider,
+  });
+
   // The setup mutations invalidate these checks without awaiting the refetch, so a stale "needs setup"
   // outlives the tx by one read.
   const fetchingSetupChecks =
@@ -115,7 +136,8 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     useIsFetching({ queryKey: ['shared', 'stellarTrustlineCheck'] }) +
     useIsFetching({ queryKey: ['shared', 'nearStorageCheck'] }) +
     useIsFetching({ queryKey: ['shared', 'xrpDestinationCheck'] }) +
-    useIsFetching({ queryKey: ['shared', 'xrpTrustlineReserveCheck'] });
+    useIsFetching({ queryKey: ['shared', 'xrpTrustlineReserveCheck'] }) +
+    useIsFetching({ queryKey: ['shared', 'hederaDestinationCheck'] });
 
   const attempt = toSwapAttempt(swap, intentParams);
   const broadcast = attempt.phase === 'broadcast' ? attempt : undefined;
@@ -123,6 +145,7 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     params: { srcChainKey: broadcast?.srcChainKey, srcTxHash: broadcast?.srcTxHash },
   });
 
+  const hederaWrongChain = hedera.needsAssociation && !hedera.blockedReason && !!dstChainSwitch?.isWrongChain;
   const state = resolveSwapLifecycle({
     attempt,
     status: status.data?.ok ? summarizeSwapStatus(status.data.value) : undefined,
@@ -131,12 +154,15 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     stellar,
     nearStorage,
     xrp,
+    hedera,
     externalBlocked,
+    hederaWrongChain,
     setupBusy:
       stellar.isActivating ||
       stellar.isRequestingTrustline ||
       nearStorage.isRegistering ||
       xrp.isRequestingTrustline ||
+      hedera.isRequestingAssociation ||
       fetchingSetupChecks > 0,
     isWrongChain: chainSwitch?.isWrongChain ?? false,
     strategy: { data: approvalStrategy.data, error: approvalStrategy.error },
@@ -152,7 +178,7 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
   const act = async (): Promise<Result<unknown> | undefined> => {
     switch (state.kind) {
       case 'needsChainSwitch':
-        await chainSwitch?.switchChain();
+        await (hederaWrongChain ? dstChainSwitch : chainSwitch)?.switchChain();
         return undefined;
       case 'needsSetup':
         if (state.reason === 'stellarActivation') return stellar.activate();
@@ -162,7 +188,17 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
         if (state.reason === 'nearStorageCheckFailed') nearStorage.retry();
         if (state.reason === 'xrpTrustline') return xrp.requestTrustline();
         if (state.reason === 'xrpCheckFailed') xrp.retry();
-        // `stellarFunding`, `xrpFunding`, `xrpBlocked` and `external` are for the app to resolve.
+        if (state.reason === 'hederaAssociation') {
+          // Without `dstChainSwitch`, the wallet moves itself to Hedera. A client stays bound to the chain it was
+          // built for, so the association is sent on the next call, from the re-created provider.
+          if (!dstChainSwitch) {
+            const switched = await switchWalletToHedera(dstWalletProvider);
+            if (switched) return switched.ok ? undefined : switched;
+          }
+          return hedera.requestAssociation();
+        }
+        if (state.reason === 'hederaCheckFailed') hedera.retry();
+        // `stellarFunding`, `xrpFunding`, `xrpBlocked`, `hederaBlocked` and `external` are for the app to resolve.
         return undefined;
       case 'ready':
         if (!intentParams || !srcWalletProvider) return undefined;
@@ -214,5 +250,6 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     stellar,
     nearStorage,
     xrp,
+    hedera,
   };
 }

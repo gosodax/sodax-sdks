@@ -9,6 +9,7 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import {
+  ChainKeys,
   type Hex,
   type BitcoinChainKey,
   type HubChainKey,
@@ -61,6 +62,7 @@ import { EvmSpokeService } from './EvmSpokeService.js';
 import { InjectiveSpokeService } from './InjectiveSpokeService.js';
 import { TronSpokeService } from './TronSpokeService.js';
 import { XrpSpokeService, type XrpDestinationReadiness } from './XrpSpokeService.js';
+import { HederaSpokeService, type HederaDestinationReadiness } from './HederaSpokeService.js';
 import { MonadSpokeService } from './MonadSpokeService.js';
 import { TonSpokeService } from './TonSpokeService.js';
 import { ZcashSpokeService } from './ZcashSpokeService.js';
@@ -209,6 +211,21 @@ function xrpRefusalMessage(
   return refusals[reason];
 }
 
+/** Why a Hedera release to `address` would be refused, worded for whoever picked the destination. */
+function hederaRefusalMessage(
+  reason: Extract<HederaDestinationReadiness, { ready: false }>['reason'],
+  address: string,
+  token: string,
+): string {
+  const refusals = {
+    account_missing: `Hedera destination ${address} has no Hedera account — create it (send it HBAR) and associate ${token} first`,
+    not_associated: `Hedera destination ${address} is not associated with ${token} — its owner must associate it (sodax.spoke.hedera.requestAssociation)`,
+    frozen: `Hedera destination ${address} is frozen for ${token} and cannot receive the release`,
+    kyc_not_granted: `Hedera destination ${address} has no KYC grant for ${token} — the token's KYC authority must grant it`,
+  } satisfies Record<typeof reason, string>;
+  return refusals[reason];
+}
+
 export class SpokeService {
   private readonly hubProvider: EvmHubProvider;
   private readonly config: ConfigService;
@@ -225,6 +242,8 @@ export class SpokeService {
   public readonly stacks: StacksSpokeService;
   public readonly tron: TronSpokeService;
   public readonly xrp: XrpSpokeService;
+  /** Hedera HTS token associations; Hedera deposits and messages go through `evm`. */
+  public readonly hedera: HederaSpokeService;
   public readonly monad: MonadSpokeService;
   public readonly ton: TonSpokeService;
   public readonly zcash: ZcashSpokeService;
@@ -245,6 +264,7 @@ export class SpokeService {
     this.stacks = new StacksSpokeService(this.config);
     this.tron = new TronSpokeService(this.config);
     this.xrp = new XrpSpokeService(this.config);
+    this.hedera = new HederaSpokeService(this.config, this.evm);
     this.monad = new MonadSpokeService(this.config);
     this.ton = new TonSpokeService(this.config);
     this.zcash = new ZcashSpokeService(this.config);
@@ -1590,8 +1610,9 @@ export class SpokeService {
   }
 
   /**
-   * Refuse a release its recipient would turn away (the relay fails it after the hub burned funds); only XRPL can
-   * refuse today. `recipient` is hub-encoded; `amount`/`maxAmount` are in the spoke token's decimals.
+   * Refuse a release its recipient would turn away (the relay fails it after the hub burned funds); only XRPL and an
+   * unassociated Hedera HTS recipient can refuse today. `recipient` is hub-encoded; `amount`/`maxAmount` are in the
+   * spoke token's decimals.
    */
   public async assertReleaseRecipientReady({
     feature,
@@ -1610,6 +1631,15 @@ export class SpokeService {
     maxAmount?: bigint;
     context?: Partial<SodaxErrorContext>;
   }): Promise<void> {
+    if (chainKey === ChainKeys.HEDERA_MAINNET) {
+      const address = reverseEncodeAddress(chainKey, recipient);
+      const readiness = await this.hedera.checkDestination({ address, token });
+      if (readiness.ready) return;
+      sodaxInvariant(false, hederaRefusalMessage(readiness.reason, address, token), {
+        feature,
+        context: { ...context, reason: `hedera-${readiness.reason}` },
+      });
+    }
     if (!isXrpChainKeyType(chainKey)) return;
     const address = reverseEncodeAddress(chainKey, recipient);
     const readiness = await this.xrp.checkDestination({ address, token, amount, maxAmount });
